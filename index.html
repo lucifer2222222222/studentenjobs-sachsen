@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Studentenjobs Sachsen – Part-time Jobs in Saxony</title>
+  <meta name="description" content="Find part-time jobs in Saxony, Germany. Minijobs, Werkstudent, Nebenjob – no signup needed. AI-powered search and translation." />
+  <meta name="keywords" content="studentenjobs, sachsen, minijob, werkstudent, nebenjob, teilzeit, dresden, leipzig, chemnitz" />
+  <meta property="og:title"       content="Studentenjobs Sachsen" />
+  <meta property="og:description" content="Part-time jobs across Saxony for students. No signup. One click apply." />
+  <meta property="og:type"        content="website" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+
+  <!-- React 18 + Babel (no build step needed) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: #020817;
+      color: #f1f5f9;
+      font-family: 'Sora', sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    #root { min-height: 100vh; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+    /* Animations */
+    @keyframes spin    { to { transform: rotate(360deg); } }
+    @keyframes fadeUp  { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes pulse   { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+    .job-grid { animation: fadeUp 0.35s ease both; }
+    select { -webkit-appearance: none; appearance: none; }
+
+    /* Loading screen */
+    #splash {
+      position: fixed; inset: 0; background: #020817;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+      z-index: 9999; transition: opacity 0.4s;
+    }
+    #splash.hide { opacity: 0; pointer-events: none; }
+    #splash-title {
+      font-size: 22px; font-weight: 800;
+      background: linear-gradient(135deg, #f8fafc, #fbbf24);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    #splash-dot {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 3px solid rgba(251,191,36,0.2);
+      border-top-color: #fbbf24;
+      animation: spin 0.8s linear infinite;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Splash screen while JS loads -->
+  <div id="splash">
+    <div id="splash-title">Studentenjobs Sachsen</div>
+    <div id="splash-dot"></div>
+  </div>
+
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    // ─── Paste your Render backend URL here after deploying ──────────────────
+    // Example: const API_BASE = "https://studentenjobs-sachsen.onrender.com";
+    const API_BASE = "";
+
+    const PAGE_SIZE = 12;
+
+    const CITIES = ["All Saxony","Dresden","Leipzig","Chemnitz","Zwickau","Freiberg","Görlitz"];
+    const CATEGORIES = ["All Jobs","🍔 Food","🛒 Retail","📦 Warehouse","🏨 Hotel","💊 Healthcare","🎬 Entertainment","📞 Call Center","🚗 Delivery","🔧 Hardware"];
+    const LANGUAGES = [
+      { code:"en", label:"🇬🇧 English" },{ code:"de", label:"🇩🇪 Deutsch" },
+      { code:"ar", label:"🇸🇦 Arabic" }, { code:"tr", label:"🇹🇷 Turkish" },
+      { code:"fr", label:"🇫🇷 French" }, { code:"es", label:"🇪🇸 Spanish" },
+      { code:"zh", label:"🇨🇳 Chinese" },{ code:"uk", label:"🇺🇦 Ukrainian" },
+    ];
+
+    const SAMPLE_JOBS = [
+      { id:1,  title:"Crew Member",            company:"McDonald's",  city:"Dresden",  district:"Dresden Mitte",   type:"Minijob",     timing:"Sofort",            category:"🍔 Food",         via:"mcdonalds.de",    url:"https://jobs.mcdonalds.de",      is_new:true  },
+      { id:2,  title:"Warehouse Assistant",    company:"Amazon",      city:"Leipzig",  district:"Leipzig Süd",     type:"Teilzeit",    timing:"Weekends",          category:"📦 Warehouse",    via:"amazon.jobs",     url:"https://amazon.jobs",            is_new:true  },
+      { id:3,  title:"Kassierer/in",           company:"REWE",        city:"Dresden",  district:"Dresden Neustadt",type:"Minijob",     timing:"Flexible",          category:"🛒 Retail",       via:"rewe-group.com",  url:"https://karriere.rewe.de",       is_new:false },
+      { id:4,  title:"Barista",                company:"Starbucks",   city:"Leipzig",  district:"Leipzig Mitte",   type:"Werkstudent", timing:"Sofort",            category:"🍔 Food",         via:"starbucks.com",   url:"https://starbucks.com/careers",  is_new:true  },
+      { id:5,  title:"Delivery Rider",         company:"Lieferando",  city:"Chemnitz", district:"Chemnitz",        type:"Nebenjob",    timing:"Flexible",          category:"🚗 Delivery",     via:"lieferando.de",   url:"https://lieferando.de/jobs",     is_new:false },
+      { id:6,  title:"Hotel Receptionist",     company:"Ibis Hotel",  city:"Dresden",  district:"Dresden",         type:"Teilzeit",    timing:"Mornings",          category:"🏨 Hotel",        via:"ibis.com",        url:"https://ibis.com",               is_new:false },
+      { id:7,  title:"Pharmacy Assistant",     company:"DM Drogerie", city:"Zwickau",  district:"Zwickau",         type:"Minijob",     timing:"Sofort",            category:"💊 Healthcare",   via:"dm.de",           url:"https://www.dm.de/unternehmen",  is_new:true  },
+      { id:8,  title:"Customer Support Agent", company:"Arvato",      city:"Leipzig",  district:"Leipzig",         type:"Werkstudent", timing:"Part-time",         category:"📞 Call Center",  via:"arvato.com",      url:"https://arvato.com/jobs",        is_new:false },
+      { id:9,  title:"Cinema Host",            company:"CinemaxX",    city:"Dresden",  district:"Dresden",         type:"Nebenjob",    timing:"Evenings/Weekends", category:"🎬 Entertainment",via:"cinemaxx.de",     url:"https://cinemaxx.de",            is_new:false },
+      { id:10, title:"Hardware Store Helper",  company:"OBI Baumarkt",city:"Görlitz",  district:"Görlitz",         type:"Minijob",     timing:"Flexible",          category:"🔧 Hardware",     via:"obi.de",          url:"https://www.obi.de/unternehmen", is_new:true  },
+      { id:11, title:"Package Sorter",         company:"DHL",         city:"Leipzig",  district:"Leipzig Süd",     type:"Teilzeit",    timing:"Early mornings",    category:"📦 Warehouse",    via:"careers.dhl.com", url:"https://careers.dhl.com",        is_new:false },
+      { id:12, title:"Checkout Staff",         company:"Lidl",        city:"Freiberg", district:"Freiberg",        type:"Minijob",     timing:"Sofort",            category:"🛒 Retail",       via:"lidl.de",         url:"https://jobs.lidl.de",           is_new:true  },
+    ];
+
+    const TYPE_COLORS = { Minijob:"#22c55e", Teilzeit:"#3b82f6", Werkstudent:"#a855f7", Nebenjob:"#f59e0b" };
+
+    function useDebounce(value, delay) {
+      const [d, setD] = React.useState(value);
+      React.useEffect(() => {
+        const t = setTimeout(() => setD(value), delay);
+        return () => clearTimeout(t);
+      }, [value, delay]);
+      return d;
+    }
+
+    function SkeletonCard() {
+      return (
+        <div style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:16, padding:20 }}>
+          {[80,55,100,60].map((w,i) => (
+            <div key={i} style={{
+              height: i===0?18:12, width:`${w}%`,
+              background:"rgba(255,255,255,0.07)", borderRadius:6,
+              marginBottom: i===3?0:10,
+              animation:`pulse 1.4s ease-in-out ${i*0.1}s infinite`,
+            }} />
+          ))}
+        </div>
+      );
+    }
+
+    function JobCard({ job, lang, onAI }) {
+      const color = TYPE_COLORS[job.type] || "#94a3b8";
+      return (
+        <div
+          style={{ background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.10)", borderRadius:16, padding:20, position:"relative", display:"flex", flexDirection:"column", transition:"border-color 0.2s, transform 0.2s" }}
+          onMouseEnter={e=>{ e.currentTarget.style.borderColor="rgba(251,191,36,0.45)"; e.currentTarget.style.transform="translateY(-2px)"; }}
+          onMouseLeave={e=>{ e.currentTarget.style.borderColor="rgba(255,255,255,0.10)"; e.currentTarget.style.transform="translateY(0)"; }}
+        >
+          {job.is_new && (
+            <span style={{ position:"absolute", top:13, right:13, background:"#fbbf24", color:"#000", fontSize:10, fontWeight:800, letterSpacing:"0.08em", padding:"2px 8px", borderRadius:99, fontFamily:"'Space Mono',monospace" }}>NEW</span>
+          )}
+          <div style={{ marginBottom:8, paddingRight: job.is_new?44:0 }}>
+            <div style={{ fontSize:16, fontWeight:700, color:"#f1f5f9", lineHeight:1.3 }}>{job.title}</div>
+            <div style={{ fontSize:13, color:"#94a3b8", marginTop:3 }}>{job.company} · {job.district||job.city}</div>
+          </div>
+          <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginBottom:12 }}>
+            <span style={{ background:color+"22", color, border:`1px solid ${color}44`, borderRadius:99, padding:"2px 10px", fontSize:12, fontWeight:600 }}>{job.type}</span>
+            <span style={{ background:"rgba(255,255,255,0.06)", color:"#94a3b8", borderRadius:99, padding:"2px 10px", fontSize:12 }}>⏰ {job.timing}</span>
+            <span style={{ background:"rgba(255,255,255,0.06)", color:"#94a3b8", borderRadius:99, padding:"2px 10px", fontSize:12 }}>{job.category}</span>
+          </div>
+          {job.description && (
+            <div style={{ fontSize:12, color:"#64748b", marginBottom:10, lineHeight:1.5, flexGrow:1 }}>
+              {job.description.slice(0,120)}{job.description.length>120?"…":""}
+            </div>
+          )}
+          <div style={{ fontSize:11, color:"#475569", marginBottom:12 }}>
+            via <span style={{ color:"#fbbf24" }}>{job.via}</span>
+          </div>
+          <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginBottom:10 }}>
+            {["✨ Summarize","🌐 Translate","📝 Cover Letter"].map(action => (
+              <button key={action} onClick={()=>onAI(job,action,lang)} style={{ background:"rgba(251,191,36,0.08)", border:"1px solid rgba(251,191,36,0.25)", color:"#fbbf24", borderRadius:8, padding:"5px 11px", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'Space Mono',monospace" }}
+                onMouseEnter={e=>e.target.style.background="rgba(251,191,36,0.18)"}
+                onMouseLeave={e=>e.target.style.background="rgba(251,191,36,0.08)"}
+              >{action}</button>
+            ))}
+          </div>
+          <a href={job.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none", marginTop:"auto" }}>
+            <button style={{ width:"100%", background:"linear-gradient(135deg,#fbbf24,#f59e0b)", border:"none", borderRadius:10, padding:"10px 0", color:"#000", fontWeight:800, fontSize:14, cursor:"pointer" }}
+              onMouseEnter={e=>e.target.style.opacity="0.85"}
+              onMouseLeave={e=>e.target.style.opacity="1"}
+            >Jetzt Bewerben →</button>
+          </a>
+        </div>
+      );
+    }
+
+    function AIModal({ result, onClose }) {
+      if (!result) return null;
+      return (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", backdropFilter:"blur(6px)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }} onClick={onClose}>
+          <div style={{ background:"#0f172a", border:"1px solid rgba(251,191,36,0.3)", borderRadius:20, padding:32, maxWidth:560, width:"100%", maxHeight:"80vh", overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+              <div style={{ fontWeight:700, color:"#fbbf24", fontSize:15 }}>{result.action} — <span style={{color:"#94a3b8"}}>{result.job.title}</span></div>
+              <button onClick={onClose} style={{ background:"none", border:"none", color:"#64748b", cursor:"pointer", fontSize:20, lineHeight:1 }}>✕</button>
+            </div>
+            {result.loading ? (
+              <div style={{ textAlign:"center", padding:"40px 0", color:"#94a3b8" }}>
+                <div style={{ fontSize:32, marginBottom:12, display:"inline-block", animation:"spin 1s linear infinite" }}>⚙️</div>
+                <div style={{ fontFamily:"'Space Mono',monospace", fontSize:13 }}>AI is thinking…</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ color:"#e2e8f0", lineHeight:1.75, fontSize:14, whiteSpace:"pre-wrap" }}>{result.text}</div>
+                <button onClick={()=>navigator.clipboard?.writeText(result.text)} style={{ marginTop:20, background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.12)", color:"#94a3b8", borderRadius:8, padding:"7px 16px", fontSize:12, cursor:"pointer", fontFamily:"'Space Mono',monospace" }}>📋 Copy</button>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function ConfigBanner({ onSet }) {
+      const [val, setVal] = React.useState("");
+      return (
+        <div style={{ background:"rgba(251,191,36,0.08)", border:"1px solid rgba(251,191,36,0.25)", borderRadius:14, padding:"14px 18px", marginBottom:24, display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+          <span style={{ fontSize:13, color:"#fbbf24", fontFamily:"'Space Mono',monospace", flexShrink:0 }}>🔌 Backend URL:</span>
+          <input value={val} onChange={e=>setVal(e.target.value)}
+            placeholder="https://your-app.onrender.com"
+            onKeyDown={e=>e.key==="Enter"&&val&&onSet(val.replace(/\/$/,""))}
+            style={{ flex:1, minWidth:200, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:8, padding:"6px 12px", color:"#f1f5f9", fontSize:13, outline:"none", fontFamily:"'Space Mono',monospace" }}
+          />
+          <button onClick={()=>val&&onSet(val.replace(/\/$/,""))} style={{ background:"#fbbf24", border:"none", borderRadius:8, padding:"7px 16px", color:"#000", fontWeight:700, fontSize:13, cursor:"pointer" }}>Connect</button>
+          <span style={{ fontSize:11, color:"#475569", width:"100%" }}>Using demo data · Deploy the backend to Render, paste your URL above</span>
+        </div>
+      );
+    }
+
+    function App() {
+      const [apiBase, setApiBase]     = React.useState(API_BASE);
+      const [city, setCity]           = React.useState("All Saxony");
+      const [category, setCategory]   = React.useState("All Jobs");
+      const [search, setSearch]       = React.useState("");
+      const [lang, setLang]           = React.useState("en");
+      const [jobs, setJobs]           = React.useState([]);
+      const [total, setTotal]         = React.useState(0);
+      const [offset, setOffset]       = React.useState(0);
+      const [loading, setLoading]     = React.useState(true);
+      const [error, setError]         = React.useState(null);
+      const [lastUpdated, setLastUpdated] = React.useState(null);
+      const [aiResult, setAiResult]   = React.useState(null);
+
+      const debouncedSearch = useDebounce(search, 400);
+
+      React.useEffect(() => { setOffset(0); }, [city, category, debouncedSearch, apiBase]);
+
+      React.useEffect(() => {
+        let cancelled = false;
+        setLoading(true); setError(null);
+        async function load() {
+          if (!apiBase) {
+            await new Promise(r => setTimeout(r, 500));
+            if (cancelled) return;
+            let f = SAMPLE_JOBS;
+            if (city !== "All Saxony") f = f.filter(j => j.city === city);
+            if (category !== "All Jobs") {
+              const cat = category.split(" ").slice(1).join(" ").toLowerCase();
+              f = f.filter(j => j.category.toLowerCase().includes(cat));
+            }
+            if (debouncedSearch) {
+              const q = debouncedSearch.toLowerCase();
+              f = f.filter(j => j.title.toLowerCase().includes(q) || j.company.toLowerCase().includes(q));
+            }
+            setTotal(f.length); setJobs(f.slice(offset, offset+PAGE_SIZE));
+            setLastUpdated(new Date().toISOString()); setLoading(false);
+            return;
+          }
+          try {
+            const p = new URLSearchParams({ city, category, q:debouncedSearch, limit:PAGE_SIZE, offset });
+            const res = await fetch(`${apiBase}/api/jobs?${p}`);
+            if (!res.ok) throw new Error(`Server error ${res.status}`);
+            const data = await res.json();
+            if (cancelled) return;
+            setJobs(data.jobs||[]); setTotal(data.total||0);
+            setLastUpdated(data.last_updated); setLoading(false);
+          } catch(err) {
+            if (cancelled) return;
+            setError(`Could not reach backend: ${err.message}`); setLoading(false);
+          }
+        }
+        load();
+        return () => { cancelled = true; };
+      }, [apiBase, city, category, debouncedSearch, offset]);
+
+      // Hide splash once first load done
+      React.useEffect(() => {
+        if (!loading) {
+          const splash = document.getElementById("splash");
+          if (splash) { splash.classList.add("hide"); setTimeout(()=>splash.remove(), 400); }
+        }
+      }, [loading]);
+
+      function fmtTime(iso) {
+        if (!iso) return "—";
+        const diff = Math.round((Date.now() - new Date(iso)) / 60000);
+        if (diff < 1) return "Just now";
+        if (diff < 60) return `${diff}m ago`;
+        return `${Math.round(diff/60)}h ago`;
+      }
+
+      async function handleAI(job, action, language) {
+        setAiResult({ job, action, loading:true, text:"" });
+        const langName = (LANGUAGES.find(l=>l.code===language)?.label||"English").split(" ")[1];
+        const prompts = {
+          "Summarize":    `Summarize this job in exactly 3 bullet points for a student.\nJob: ${job.title} at ${job.company}, ${job.city}\nType: ${job.type}, Timing: ${job.timing}\nReply in ${langName}.`,
+          "Translate":    `Translate this job info into ${langName}:\nTitle: ${job.title}\nCompany: ${job.company}\nLocation: ${job.city}\nType: ${job.type}\nSchedule: ${job.timing}`,
+          "Cover Letter": `Write a short, ready-to-send cover letter in ${langName} for a student applying to:\nJob: ${job.title} at ${job.company}, ${job.city}\nType: ${job.type}, Schedule: ${job.timing}\n3 short paragraphs, no placeholders.`,
+        };
+        const key = Object.keys(prompts).find(k=>action.includes(k)) || "Summarize";
+        try {
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1000, messages:[{role:"user",content:prompts[key]}] }),
+          });
+          const data = await res.json();
+          setAiResult(prev=>({...prev, loading:false, text: data.content?.map(b=>b.text||"").join("")||"No response."}));
+        } catch {
+          setAiResult(prev=>({...prev, loading:false, text:"AI error — please try again."}));
+        }
+      }
+
+      const totalPages  = Math.ceil(total / PAGE_SIZE);
+      const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
+
+      return (
+        <div style={{ minHeight:"100vh", background:"#020817", fontFamily:"'Sora',sans-serif", color:"#f1f5f9" }}>
+          <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:800, height:400, pointerEvents:"none", zIndex:0, background:"radial-gradient(ellipse,rgba(251,191,36,0.07) 0%,transparent 70%)" }} />
+
+          <div style={{ maxWidth:940, margin:"0 auto", padding:"28px 16px 60px", position:"relative", zIndex:1 }}>
+
+            {/* Header */}
+            <div style={{ textAlign:"center", marginBottom:36 }}>
+              <div style={{ fontFamily:"'Space Mono',monospace", fontSize:10, letterSpacing:"0.22em", color:"#fbbf24", marginBottom:12, textTransform:"uppercase" }}>🇩🇪 Saxony · Student Jobs · Always Free</div>
+              <h1 style={{ fontSize:"clamp(26px,5vw,46px)", fontWeight:800, lineHeight:1.1, background:"linear-gradient(135deg,#f8fafc 0%,#fbbf24 100%)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", marginBottom:10 }}>Studentenjobs Sachsen</h1>
+              <p style={{ color:"#64748b", fontSize:14 }}>Part-time jobs across Saxony · No signup · One click apply</p>
+            </div>
+
+            {!apiBase && <ConfigBanner onSet={setApiBase} />}
+
+            {apiBase && (
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20, background:"rgba(34,197,94,0.08)", border:"1px solid rgba(34,197,94,0.25)", borderRadius:12, padding:"10px 16px", flexWrap:"wrap" }}>
+                <span style={{ color:"#22c55e", fontFamily:"'Space Mono',monospace", fontSize:12, fontWeight:700 }}>● LIVE</span>
+                <span style={{ color:"#475569", fontSize:12, fontFamily:"'Space Mono',monospace", wordBreak:"break-all" }}>{apiBase}</span>
+                <button onClick={()=>setApiBase("")} style={{ marginLeft:"auto", background:"none", border:"1px solid rgba(255,255,255,0.1)", color:"#64748b", borderRadius:6, padding:"3px 10px", fontSize:11, cursor:"pointer" }}>Disconnect</button>
+              </div>
+            )}
+
+            {/* Stats + language */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18, flexWrap:"wrap", gap:10 }}>
+              <div style={{ fontSize:13, color:"#475569", fontFamily:"'Space Mono',monospace" }}>
+                {loading ? <span style={{color:"#64748b"}}>Loading…</span>
+                  : <><span style={{color:"#fbbf24",fontWeight:700}}>{total}</span> jobs · Updated {fmtTime(lastUpdated)}{!apiBase?" · Demo data":""}</>}
+              </div>
+              <select value={lang} onChange={e=>setLang(e.target.value)} style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:10, padding:"7px 14px", color:"#f1f5f9", fontSize:13, cursor:"pointer", fontFamily:"'Sora',sans-serif" }}>
+                {LANGUAGES.map(l=><option key={l.code} value={l.code} style={{background:"#0f172a"}}>{l.label}</option>)}
+              </select>
+            </div>
+
+            {/* Search */}
+            <div style={{ position:"relative", marginBottom:14 }}>
+              <input value={search} onChange={e=>setSearch(e.target.value)}
+                placeholder='Search naturally… "weekend job", "no experience", "Minijob"'
+                style={{ width:"100%", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:14, padding:"13px 50px 13px 18px", color:"#f1f5f9", fontSize:15, fontFamily:"'Sora',sans-serif", outline:"none" }}
+                onFocus={e=>e.target.style.borderColor="rgba(251,191,36,0.5)"}
+                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.12)"}
+              />
+              <span style={{ position:"absolute", right:16, top:"50%", transform:"translateY(-50%)", fontSize:18 }}>{loading&&search?"⏳":"🔍"}</span>
+            </div>
+
+            {/* City pills */}
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
+              {CITIES.map(c=>(
+                <button key={c} onClick={()=>setCity(c)} style={{ background:city===c?"#fbbf24":"rgba(255,255,255,0.04)", border:city===c?"1px solid #fbbf24":"1px solid rgba(255,255,255,0.10)", borderRadius:99, padding:"6px 16px", color:city===c?"#000":"#94a3b8", fontSize:13, fontWeight:city===c?700:400, cursor:"pointer" }}>{c}</button>
+              ))}
+            </div>
+
+            {/* Category pills */}
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:28 }}>
+              {CATEGORIES.map(c=>(
+                <button key={c} onClick={()=>setCategory(c)} style={{ background:category===c?"rgba(251,191,36,0.15)":"rgba(255,255,255,0.03)", border:category===c?"1px solid rgba(251,191,36,0.5)":"1px solid rgba(255,255,255,0.08)", borderRadius:10, padding:"6px 14px", color:category===c?"#fbbf24":"#64748b", fontSize:12, fontWeight:category===c?700:400, cursor:"pointer", fontFamily:"'Space Mono',monospace" }}>{c}</button>
+              ))}
+            </div>
+
+            {error && (
+              <div style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:12, padding:"14px 18px", marginBottom:24, color:"#fca5a5", fontSize:13, fontFamily:"'Space Mono',monospace" }}>
+                ⚠️ {error}
+                <button onClick={()=>{setError(null);setOffset(0);}} style={{ marginLeft:14, background:"none", border:"1px solid rgba(252,165,165,0.3)", color:"#fca5a5", borderRadius:6, padding:"2px 10px", fontSize:12, cursor:"pointer" }}>Retry</button>
+              </div>
+            )}
+
+            {/* Grid */}
+            {loading ? (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:16 }}>
+                {Array.from({length:PAGE_SIZE}).map((_,i)=><SkeletonCard key={i} />)}
+              </div>
+            ) : jobs.length===0 ? (
+              <div style={{ textAlign:"center", padding:"70px 0", color:"#475569" }}>
+                <div style={{ fontSize:42, marginBottom:14 }}>🔎</div>
+                <div style={{ fontFamily:"'Space Mono',monospace", fontSize:14 }}>No jobs found.</div>
+                <div style={{ fontSize:12, marginTop:8 }}>Try different filters or a broader search.</div>
+              </div>
+            ) : (
+              <div className="job-grid" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:16 }}>
+                {jobs.map(job=><JobCard key={job.id} job={job} lang={lang} onAI={handleAI} />)}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {!loading && totalPages>1 && (
+              <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:12, marginTop:36 }}>
+                <button onClick={()=>setOffset(Math.max(0,offset-PAGE_SIZE))} disabled={offset===0}
+                  style={{ background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:10, padding:"8px 18px", color:offset===0?"#334155":"#94a3b8", fontSize:13, cursor:offset===0?"not-allowed":"pointer", opacity:offset===0?0.4:1 }}>← Prev</button>
+                <span style={{ fontFamily:"'Space Mono',monospace", fontSize:12, color:"#475569" }}>
+                  Page <span style={{color:"#fbbf24"}}>{currentPage}</span> of {totalPages}
+                </span>
+                <button onClick={()=>setOffset(offset+PAGE_SIZE)} disabled={currentPage>=totalPages}
+                  style={{ background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:10, padding:"8px 18px", color:currentPage>=totalPages?"#334155":"#94a3b8", fontSize:13, cursor:currentPage>=totalPages?"not-allowed":"pointer", opacity:currentPage>=totalPages?0.4:1 }}>Next →</button>
+              </div>
+            )}
+
+            <div style={{ textAlign:"center", marginTop:52, color:"#1e293b", fontSize:11, fontFamily:"'Space Mono',monospace" }}>
+              Free for students · No data collected · Jobs auto-refresh every 4 hours
+            </div>
+          </div>
+
+          <AIModal result={aiResult} onClose={()=>setAiResult(null)} />
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
