@@ -268,31 +268,31 @@ def get_cities():
 def get_categories():
     return jsonify(sorted({j["category"] for j in _jobs}))
 
-@app.route("/api/debug/adzuna", methods=["GET"])
-def debug_adzuna():
+@app.route("/api/debug/fetch", methods=["GET"])
+def debug_fetch():
     app_id  = os.getenv("ADZUNA_APP_ID", "")
     app_key = os.getenv("ADZUNA_APP_KEY", "")
-    if not app_id:
-        return jsonify({"error": "No API key set"})
-    try:
-        r = requests.get(
-            "https://api.adzuna.com/v1/api/jobs/de/search/1",
-            params={"app_id": app_id, "app_key": app_key,
-                    "results_per_page": 3, "what": "minijob", "where": "Dresden"},
-            timeout=10,
-        )
-        data = r.json()
-        return jsonify({
-            "count": data.get("count", 0),
-            "first_result": data.get("results", [{}])[0] if data.get("results") else None,
+    r = requests.get(
+        "https://api.adzuna.com/v1/api/jobs/de/search/1",
+        params={"app_id": app_id, "app_key": app_key,
+                "results_per_page": 5, "what": "minijob", "where": "Dresden"},
+        timeout=10,
+    )
+    results = r.json().get("results", [])
+    processed = []
+    for item in results:
+        areas = item.get("location", {}).get("area", [])
+        all_areas_text = " ".join(areas).lower()
+        city = _extract_city(areas)
+        saxony_match = any(s in all_areas_text for s in SAXONY_REGION)
+        processed.append({
+            "title": item.get("title",""),
+            "areas": areas,
+            "all_areas_text": all_areas_text,
+            "city_extracted": city,
+            "saxony_match": saxony_match,
         })
-    except Exception as e:
-        return jsonify({"error": str(e)})
-
-@app.route("/api/force-refresh", methods=["GET"])
-def force_refresh():
-    threading.Thread(target=_fetch_adzuna, daemon=True).start()
-    return jsonify({"message": "Adzuna fetch started — check /api/status in 30 seconds"})
+    return jsonify(processed)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
