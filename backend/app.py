@@ -1,15 +1,16 @@
-import os, logging
+import os, json, logging, threading, time, requests
 from datetime import datetime
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("app")
 app = Flask(__name__)
 CORS(app)
 
 STARTED = datetime.utcnow().isoformat() + "Z"
 
-JOBS = [
+BASE_JOBS = [
     {"id":1,"title":"Crew Member","company":"McDonald's","city":"Dresden","district":"Dresden Mitte","type":"Minijob","timing":"Sofort","category":"🍔 Food","description":"Flexible hours, no experience needed. Apply directly on our website.","url":"https://jobs.mcdonalds.de","via":"mcdonalds.de","is_new":True},
     {"id":2,"title":"Crew Member","company":"McDonald's","city":"Leipzig","district":"Leipzig Mitte","type":"Minijob","timing":"Sofort","category":"🍔 Food","description":"Flexible hours, no experience needed.","url":"https://jobs.mcdonalds.de","via":"mcdonalds.de","is_new":True},
     {"id":3,"title":"Crew Member","company":"McDonald's","city":"Chemnitz","district":"Chemnitz","type":"Minijob","timing":"Sofort","category":"🍔 Food","description":"Flexible hours, no experience needed.","url":"https://jobs.mcdonalds.de","via":"mcdonalds.de","is_new":False},
@@ -42,13 +43,141 @@ JOBS = [
     {"id":30,"title":"Paketsortierung","company":"Amazon","city":"Leipzig","district":"Leipzig Süd","type":"Minijob","timing":"Early mornings","category":"📦 Warehouse","description":"Early morning parcel sorting at Amazon Leipzig.","url":"https://amazon.jobs","via":"amazon.jobs","is_new":True},
 ]
 
+# Live job store — starts with hardcoded, Adzuna added in background
+_jobs = list(BASE_JOBS)
+_last_updated = STARTED
+_fetching_adzuna = False
+
+SAXONY = ["dresden","leipzig","chemnitz","zwickau","freiberg","görlitz","sachsen"]
+TYPE_KW = {
+    "Minijob":     ["minijob","mini job","520"],
+    "Werkstudent": ["werkstudent","hiwi"],
+    "Nebenjob":    ["nebenjob"],
+    "Teilzeit":    ["teilzeit","part-time"],
+}
+CAT_KW = {
+    "🍔 Food":       ["food","küche","restaurant","barista","mcdonald","burger","kfc","subway"],
+    "🛒 Retail":     ["kasse","supermarkt","retail","verkauf","lidl","rewe","aldi","edeka","zara","h&m"],
+    "📦 Warehouse":  ["lager","warehouse","amazon","dhl","dpd","hermes","paket","logistik"],
+    "🏨 Hotel":      ["hotel","rezeption","housekeeping"],
+    "💊 Healthcare": ["pflege","apotheke","dm ","rossmann","health","drogerie"],
+    "🚗 Delivery":   ["delivery","lieferung","fahrer","kurier","lieferando"],
+    "🎬 Entertainment":["kino","cinema","sport","fitness","mcfit"],
+    "📞 Call Center":["call center","support","kundenservice","helpdesk"],
+    "🔧 Hardware":   ["baumarkt","obi","hornbach","handwerk"],
+}
+
+def _guess_type(text):
+    t = text.lower()
+    for jt, kws in TYPE_KW.items():
+        if any(k in t for k in kws):
+            return jt
+    return "Teilzeit"
+
+def _guess_cat(text):
+    t = text.lower()
+    for cat, kws in CAT_KW.items():
+        if any(k in t for k in kws):
+            return cat
+    return "🏢 Other"
+
+def _fetch_adzuna():
+    global _jobs, _last_updated, _fetching_adzuna
+    _fetching_adzuna = True
+    app_id  = os.getenv("ADZUNA_APP_ID","")
+    app_key = os.getenv("ADZUNA_APP_KEY","")
+    if not app_id or not app_key:
+        log.info("No Adzuna keys – skipping")
+        _fetching_adzuna = False
+        return
+
+    searches = [
+        ("minijob","Dresden"), ("minijob","Leipzig"),
+        ("werkstudent","Sachsen"), ("aushilfe","Sachsen"),
+        ("nebenjob","Dresden"), ("minijob","Chemnitz"),
+    ]
+    new_jobs = []
+    for what, where in searches:
+        try:
+            r = requests.get(
+                "https://api.adzuna.com/v1/api/jobs/de/search/1",
+                params={"app_id":app_id,"app_key":app_key,
+                        "results_per_page":20,"what":what,"where":where,"part_time":1},
+                timeout=10,
+            )
+            r.raise_for_status()
+            for item in r.json().get("results",[]):
+                areas = item.get("location",{}).get("area",[])
+                city = next((a for a in reversed(areas)
+                             if a.lower() not in ("germany","deutschland","saxony","sachsen","europe")), None)
+                if not city or not any(s in city.lower() for s in SAXONY):
+                    continue
+                title = item.get("title","").strip()
+                desc  = item.get("description","")
+                new_jobs.append({
+                    "title":   title,
+                    "company": item.get("company",{}).get("display_name","Unknown"),
+                    "city":    city, "district": city,
+                    "type":    _guess_type(title+" "+desc),
+                    "timing":  "Flexible",
+                    "category":_guess_cat(title+" "+desc),
+                    "description": desc[:250],
+                    "url":     item.get("redirect_url","#"),
+                    "via":     "adzuna.de", "is_new": True,
+                    "source":  "adzuna", "posted_at": "",
+                })
+        except Exception as e:
+            log.warning(f"Adzuna {what}/{where}: {e}")
+
+    if new_jobs:
+        # Merge with base jobs, deduplicate by title+company+city
+        seen = {(j["title"].lower()[:35], j["company"].lower(), j["city"].lower())
+                for j in BASE_JOBS}
+        added = []
+        for j in new_jobs:
+            key = (j["title"].lower()[:35], j["company"].lower(), j["city"].lower())
+            if key not in seen:
+                seen.add(key)
+                added.append(j)
+
+        merged = list(BASE_JOBS) + added
+        for i, j in enumerate(merged, 1):
+            j["id"] = i
+        _jobs = merged
+        _last_updated = datetime.utcnow().isoformat() + "Z"
+        log.info(f"Adzuna added {len(added)} new jobs → total {len(_jobs)}")
+    else:
+        log.info("Adzuna returned 0 new jobs")
+
+    _fetching_adzuna = False
+
+def _background():
+    """Wait 5s after startup then fetch Adzuna, repeat every 4h."""
+    time.sleep(5)
+    while True:
+        try:
+            _fetch_adzuna()
+        except Exception as e:
+            log.error(f"Background fetch error: {e}")
+        time.sleep(4 * 3600)
+
+threading.Thread(target=_background, daemon=True).start()
+log.info(f"Started with {len(_jobs)} hardcoded jobs, fetching Adzuna in background...")
+
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
+
 @app.route("/", methods=["GET"])
 def index():
-    return jsonify({"status":"ok","jobs":len(JOBS)})
+    return jsonify({"status":"ok","jobs":len(_jobs)})
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
-    return jsonify({"status":"ok","job_count":len(JOBS),"last_updated":STARTED,"refreshing":False,"next_refresh":"N/A"})
+    return jsonify({
+        "status":"ok", "job_count":len(_jobs),
+        "last_updated":_last_updated, "refreshing":_fetching_adzuna,
+        "next_refresh":"every 4 hours",
+    })
 
 @app.route("/api/jobs", methods=["GET"])
 def get_jobs():
@@ -57,23 +186,24 @@ def get_jobs():
     q        = request.args.get("q","").strip().lower()
     limit    = min(int(request.args.get("limit",100)),200)
     offset   = int(request.args.get("offset",0))
-    jobs = JOBS
+    jobs = _jobs
     if city and city.lower() != "all saxony":
         jobs = [j for j in jobs if j["city"].lower()==city.lower()]
     if category and category.lower() != "all jobs":
         cat = category.split(" ",1)[-1].lower() if " " in category else category.lower()
         jobs = [j for j in jobs if cat in j["category"].lower()]
     if q:
-        jobs = [j for j in jobs if q in j["title"].lower() or q in j["company"].lower()]
-    return jsonify({"total":len(jobs),"offset":offset,"limit":limit,"jobs":jobs[offset:offset+limit],"last_updated":STARTED})
+        jobs = [j for j in jobs if q in j["title"].lower() or q in j["company"].lower() or q in j.get("description","").lower()]
+    return jsonify({"total":len(jobs),"offset":offset,"limit":limit,
+                    "jobs":jobs[offset:offset+limit],"last_updated":_last_updated})
 
 @app.route("/api/cities", methods=["GET"])
 def get_cities():
-    return jsonify(sorted({j["city"] for j in JOBS}))
+    return jsonify(sorted({j["city"] for j in _jobs}))
 
 @app.route("/api/categories", methods=["GET"])
 def get_categories():
-    return jsonify(sorted({j["category"] for j in JOBS}))
+    return jsonify(sorted({j["category"] for j in _jobs}))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
