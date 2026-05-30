@@ -1,8 +1,10 @@
 """
 Studentenjobs Sachsen - Flask Backend
+Jobs are persisted to a JSON file so they survive worker restarts.
 """
 
 import os
+import json
 import time
 import logging
 import threading
@@ -26,25 +28,63 @@ log = logging.getLogger("app")
 app = Flask(__name__)
 CORS(app)
 
-_jobs = []
-_last_updated = None
+JOBS_FILE = "/tmp/jobs_cache.json"   # survives worker restarts, cleared on full redeploy
+REFRESH_INTERVAL_HOURS = 4
 _is_refreshing = False
 _started = False
-REFRESH_INTERVAL_HOURS = 4
 
+
+# ── Persistence ────────────────────────────────────────────────────────────────
+
+def load_jobs_from_file():
+    """Load jobs from JSON file. Returns (jobs, last_updated) or ([], None)."""
+    try:
+        if os.path.exists(JOBS_FILE):
+            with open(JOBS_FILE, "r") as f:
+                data = json.load(f)
+            jobs = data.get("jobs", [])
+            ts   = data.get("last_updated")
+            last = datetime.fromisoformat(ts) if ts else None
+            log.info(f"Loaded {len(jobs)} jobs from cache (updated {ts})")
+            return jobs, last
+    except Exception as e:
+        log.warning(f"Could not load cache: {e}")
+    return [], None
+
+
+def save_jobs_to_file(jobs, last_updated):
+    """Persist jobs to JSON file."""
+    try:
+        with open(JOBS_FILE, "w") as f:
+            json.dump({
+                "jobs": jobs,
+                "last_updated": last_updated.isoformat() if last_updated else None,
+            }, f)
+        log.info(f"Saved {len(jobs)} jobs to cache")
+    except Exception as e:
+        log.error(f"Could not save cache: {e}")
+
+
+# Load from file at startup (survives gunicorn worker restarts)
+_jobs, _last_updated = load_jobs_from_file()
+
+
+# ── Scraping ───────────────────────────────────────────────────────────────────
 
 def refresh_jobs():
     global _jobs, _last_updated, _is_refreshing
     if _is_refreshing:
+        log.info("Already refreshing – skipping")
         return
     _is_refreshing = True
-    log.info("Refreshing jobs...")
+    log.info("Starting job refresh...")
+
     all_jobs = []
     for name, fn in [
-        ("Adzuna",    fetch_adzuna_jobs),
-        ("JSearch",   fetch_jsearch_jobs),
-        ("Chains",    fetch_chain_jobs),
-        ("Jobboards", fetch_jobboard_jobs),
+        ("Chains",    fetch_chain_jobs),    # instant – hardcoded
+        ("Adzuna",    fetch_adzuna_jobs),   # ~5s
+        ("JSearch",   fetch_jsearch_jobs),  # ~5s
+        ("Jobboards", fetch_jobboard_jobs), # ~10s
     ]:
         try:
             jobs = fn()
@@ -52,20 +92,35 @@ def refresh_jobs():
             all_jobs.extend(jobs)
         except Exception as e:
             log.error(f"  {name} failed: {e}")
-    _jobs = deduplicate_jobs(all_jobs)
-    _last_updated = datetime.utcnow()
+
+    if all_jobs:
+        deduped = deduplicate_jobs(all_jobs)
+        _jobs = deduped
+        _last_updated = datetime.utcnow()
+        save_jobs_to_file(_jobs, _last_updated)
+        log.info(f"Refresh done: {len(_jobs)} unique jobs")
+    else:
+        log.warning("No jobs returned from any source!")
+
     _is_refreshing = False
-    log.info(f"Done: {len(_jobs)} unique jobs")
+
+
+def needs_refresh():
+    """True if we've never fetched or it's been more than REFRESH_INTERVAL_HOURS."""
+    if not _last_updated:
+        return True
+    age = datetime.utcnow() - _last_updated
+    return age > timedelta(hours=REFRESH_INTERVAL_HOURS)
 
 
 def background_scheduler():
     while True:
-        refresh_jobs()
-        time.sleep(REFRESH_INTERVAL_HOURS * 3600)
+        if needs_refresh():
+            refresh_jobs()
+        time.sleep(300)   # check every 5 minutes
 
 
 def start_background_thread():
-    """Call once at startup regardless of whether gunicorn or dev server."""
     global _started
     if not _started:
         _started = True
@@ -74,7 +129,7 @@ def start_background_thread():
         log.info("Background scheduler started")
 
 
-# ── Start on import (works with gunicorn) ─────────────────────────────────────
+# Start on import — works with gunicorn
 start_background_thread()
 
 
@@ -82,7 +137,12 @@ start_background_thread()
 
 @app.route("/", methods=["GET"])
 def index():
-    return jsonify({"name": "Studentenjobs Sachsen API", "status": "ok", "jobs": len(_jobs)})
+    return jsonify({
+        "name": "Studentenjobs Sachsen API",
+        "status": "ok",
+        "jobs": len(_jobs),
+        "last_updated": _last_updated.isoformat() + "Z" if _last_updated else None,
+    })
 
 
 @app.route("/api/jobs", methods=["GET"])
@@ -99,13 +159,14 @@ def get_jobs():
         jobs = [j for j in jobs if j.get("city", "").lower() == city.lower()]
 
     if category and category.lower() != "all jobs":
-        cat_clean = category.split(" ", 1)[-1].lower() if " " in category else category.lower()
-        jobs = [j for j in jobs if cat_clean in j.get("category", "").lower()]
+        cat = category.split(" ", 1)[-1].lower() if " " in category else category.lower()
+        jobs = [j for j in jobs if cat in j.get("category", "").lower()]
 
     if q:
-        jobs = [j for j in jobs if q in j.get("title","").lower()
-                or q in j.get("company","").lower()
-                or q in j.get("description","").lower()]
+        jobs = [j for j in jobs if
+                q in j.get("title", "").lower() or
+                q in j.get("company", "").lower() or
+                q in j.get("description", "").lower()]
 
     return jsonify({
         "total":        len(jobs),
@@ -125,7 +186,7 @@ def get_job(job_id):
 
 
 @app.route("/api/status", methods=["GET"])
-def status():
+def api_status():
     return jsonify({
         "status":       "ok",
         "job_count":    len(_jobs),
