@@ -282,13 +282,17 @@ def debug_adzuna():
             timeout=10,
         )
         data = r.json()
-        # Return first result raw so we can see what Adzuna sends
         return jsonify({
             "count": data.get("count", 0),
             "first_result": data.get("results", [{}])[0] if data.get("results") else None,
         })
     except Exception as e:
         return jsonify({"error": str(e)})
+
+@app.route("/api/force-refresh", methods=["GET"])
+def force_refresh():
+    threading.Thread(target=_fetch_adzuna, daemon=True).start()
+    return jsonify({"message": "Adzuna fetch started — check /api/status in 30 seconds"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
