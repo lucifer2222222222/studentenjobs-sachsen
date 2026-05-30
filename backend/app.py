@@ -179,9 +179,13 @@ def get_categories():
 
 
 # ── Startup ────────────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
-    # Start background refresh thread
+    t = threading.Thread(target=background_scheduler, daemon=True)
+    t.start()
+    app.run(host="0.0.0.0", port=5000, debug=False)
+
+# This runs when started by gunicorn (Render uses gunicorn, not __main__)
+else:
     t = threading.Thread(target=background_scheduler, daemon=True)
     t.start()
     log.info("🚀 Studentenjobs Sachsen backend starting on :5000")
